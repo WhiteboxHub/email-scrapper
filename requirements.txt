@@ -1,0 +1,6 @@
+python-dotenv
+imaplib2
+python-dateutil
+pandas
+tqdm
+phonenumbers>=8.12.0

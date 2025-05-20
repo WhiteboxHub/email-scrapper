@@ -4,13 +4,13 @@ import email
 from dotenv import load_dotenv
 from typing import List, Dict
 import pandas as pd
-from tqdm import tqdm  # optional for progress bar
+from tqdm import tqdm
 from utils import EmailParser
 
 
 class EmailScraper:
     def __init__(self):
-        load_dotenv()  # Load environment variables from .env file
+        load_dotenv()  
         
         self.email_address = os.getenv('EMAIL')
         self.email_password = os.getenv('PASSWORD')
@@ -27,7 +27,7 @@ class EmailScraper:
         try:
             self.mail = imaplib.IMAP4_SSL(self.imap_server)
             self.mail.login(self.email_address, self.email_password)
-            self.mail.select('inbox')  # Select inbox folder
+            self.mail.select('inbox')
             return True
         except Exception as e:
             print(f"Connection failed: {str(e)}")
@@ -113,4 +113,4 @@ class EmailScraper:
 
 if __name__ == "__main__":
     scraper = EmailScraper()
-    scraper.run(limit=50)  # Process first 50 emails
+    scraper.run(limit=50)

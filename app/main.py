@@ -1,116 +1,152 @@
-import os
 import imaplib
 import email
+import mysql.connector
+import logging
+import os
+import time
 from dotenv import load_dotenv
-from typing import List, Dict
-import pandas as pd
-from tqdm import tqdm
 from utils import EmailParser
 
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 class EmailScraper:
     def __init__(self):
-        load_dotenv()  
-        
-        self.email_address = os.getenv('EMAIL')
-        self.email_password = os.getenv('PASSWORD')
-        self.imap_server = os.getenv('IMAP_SERVER', 'imap.gmail.com')
-        self.output_dir = os.getenv('OUTPUT_DIR', 'output')
-        
-        # Create output directory if it doesn't exist
-        os.makedirs(self.output_dir, exist_ok=True)
-        
+        self.imap_host = os.getenv("IMAP_SERVER")
+        self.imap_user = os.getenv("EMAIL")
+        self.imap_password = os.getenv("PASSWORD")
         self.mail = None
+        self.db_conn = None
+        self.db_cursor = None
+        self.rate_limit_seconds = 1.5
 
-    def connect(self) -> bool:
-        """Connect to IMAP server"""
+    def connect_imap(self):
         try:
-            self.mail = imaplib.IMAP4_SSL(self.imap_server)
-            self.mail.login(self.email_address, self.email_password)
-            self.mail.select('inbox')
+            self.mail = imaplib.IMAP4_SSL(self.imap_host)
+            self.mail.login(self.imap_user, self.imap_password)
+            self.mail.select("inbox")
+            logging.info("Connected to IMAP server.")
             return True
         except Exception as e:
-            print(f"Connection failed: {str(e)}")
+            logging.error(f"IMAP connection failed: {e}")
             return False
 
-    def fetch_emails(self, limit: int = 100) -> List[Dict[str, str]]:
-        """Fetch and process emails"""
-        if not self.mail:
-            if not self.connect():
-                return []
-        
-        contacts = []
+    def connect_db(self):
         try:
-            # Search for all emails
-            status, messages = self.mail.search(None, 'ALL')
-            if status != 'OK':
-                print("No messages found!")
-                return []
-            
-            email_ids = messages[0].split()
-            
-            # Process emails (limited by 'limit' parameter)
-            for email_id in tqdm(email_ids[:limit], desc="Processing emails"):
-                try:
-                    status, msg_data = self.mail.fetch(email_id, '(RFC822)')
-                    if status != 'OK':
-                        continue
-                        
-                    raw_email = msg_data[0][1]
-                    email_message = email.message_from_bytes(raw_email)
-                    
-                    contact_info = EmailParser.extract_contact_info(email_message)
-                    if any(contact_info.values()):  # Only add if we have some data
-                        contacts.append(contact_info)
-                except Exception as e:
-                    print(f"Error processing email {email_id}: {str(e)}")
-                    continue
-        
+            self.db_conn = mysql.connector.connect(
+                host=os.getenv("DB_HOST"),
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASSWORD"),
+                database=os.getenv("DB_NAME"),
+                auth_plugin='mysql_native_password' 
+            )
+            self.db_cursor = self.db_conn.cursor()
+            logging.info("Connected to MySQL database.")
+            return True
         except Exception as e:
-            print(f"Error fetching emails: {str(e)}")
-        
+            logging.error(f"DB connection failed: {e}")
+            return False
+
+    def is_processed(self, message_id):
+        self.db_cursor.execute("SELECT 1 FROM contacts WHERE message_id = %s", (message_id,))
+        return self.db_cursor.fetchone() is not None
+
+    def save_contact(self, message_id, contact):
+        try:
+            self.db_cursor.execute(
+                """
+                INSERT INTO contacts (message_id, name, email, phone, fax, landline)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    message_id,
+                    contact.get('name'),
+                    contact.get('email'),
+                    contact.get('phone'),
+                    contact.get('fax'),
+                    contact.get('landline'),
+                ),
+            )
+            self.db_conn.commit()
+            logging.info(f"Saved contact: {contact.get('email')}")
+        except Exception as e:
+            logging.error(f"Error saving contact to DB: {e}")
+
+    def fetch_emails(self, limit=50):
+        contacts = []
+
+        try:
+            result, data = self.mail.search(None, 'UNSEEN')  # fetch only unread emails
+            if result != 'OK':
+                logging.error("Failed to search inbox.")
+                return []
+
+            email_ids = data[0].split()
+            if limit:
+                email_ids = email_ids[:limit]
+
+        except Exception as e:
+            logging.error(f"Error fetching emails: {e}")
+            return []
+
+        for email_id in email_ids:
+            try:
+                res, msg_data = self.mail.fetch(email_id, "(RFC822)")
+                if res != 'OK':
+                    logging.warning(f"Failed to fetch email id {email_id}")
+                    continue
+
+                msg = email.message_from_bytes(msg_data[0][1])
+                message_id = msg.get('Message-ID', '').strip()
+
+                if not message_id:
+                    message_id = f"no-message-id-{email_id.decode()}"
+
+                if self.is_processed(message_id):
+                    logging.info(f"Skipping already processed email: {message_id}")
+                    continue
+
+                contact = EmailParser.extract_contact_info(msg)
+                self.save_contact(message_id, contact)
+
+                contacts.append(contact)
+                time.sleep(self.rate_limit_seconds)
+
+            except Exception as e:
+                logging.error(f"Error processing email {email_id}: {e}")
+
         return contacts
 
-    def save_to_csv(self, contacts: List[Dict[str, str]], filename: str = 'extracted_contacts.csv') -> str:
-        """Save contacts to CSV file"""
-        if not contacts:
-            print("No contacts to save")
-            return ""
-        
-        output_path = os.path.join(self.output_dir, filename)
-        
-        # Convert to DataFrame for easier CSV handling
-        df = pd.DataFrame(contacts)
-        
-        # Drop duplicates based on email (assuming same email = same contact)
-        df.drop_duplicates(subset=['email'], inplace=True)
-        
-        # Save to CSV
-        df.to_csv(output_path, index=False)
-        print(f"Saved {len(df)} contacts to {output_path}")
-        return output_path
-
-    def run(self, limit: int = 100, output_filename: str = 'extracted_contacts.csv'):
-        """Run the complete scraping process"""
-        if not self.connect():
-            return
-        
-        contacts = self.fetch_emails(limit)
-        self.save_to_csv(contacts, output_filename)
-        self.disconnect()
-
-    def disconnect(self):
-        """Close the IMAP connection"""
+    def close(self):
         if self.mail:
             try:
-                self.mail.close()
                 self.mail.logout()
-            except:
+            except Exception:
                 pass
-            finally:
-                self.mail = None
+        if self.db_cursor:
+            self.db_cursor.close()
+        if self.db_conn:
+            self.db_conn.close()
 
+def main():
+    scraper = EmailScraper()
+
+    if not scraper.connect_db():
+        print("Failed to connect to MySQL. Exiting.")
+        return
+
+    if not scraper.connect_imap():
+        print("Failed to connect to IMAP. Exiting.")
+        return
+
+    print("Fetching and processing new unread emails...")
+    contacts = scraper.fetch_emails(limit=100)
+    print(f"Processed {len(contacts)} new contacts.")
+    scraper.close()
 
 if __name__ == "__main__":
-    scraper = EmailScraper()
-    scraper.run(limit=50)
+    main()

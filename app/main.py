@@ -22,7 +22,7 @@ class EmailScraper:
         self.mail = None
         self.db_conn = None
         self.db_cursor = None
-        self.rate_limit_seconds = 1.5
+        self.rate_limit_seconds = 1.0  
 
     def connect_imap(self):
         try:
@@ -42,7 +42,7 @@ class EmailScraper:
                 user=os.getenv("DB_USER"),
                 password=os.getenv("DB_PASSWORD"),
                 database=os.getenv("DB_NAME"),
-                auth_plugin='mysql_native_password' 
+                auth_plugin='mysql_native_password'
             )
             self.db_cursor = self.db_conn.cursor()
             logging.info("Connected to MySQL database.")
@@ -51,43 +51,44 @@ class EmailScraper:
             logging.error(f"DB connection failed: {e}")
             return False
 
-    def is_processed(self, message_id):
-        self.db_cursor.execute("SELECT 1 FROM contacts WHERE message_id = %s", (message_id,))
+    def is_email_processed(self, email):
+        self.db_cursor.execute("SELECT 1 FROM contacts WHERE email = %s", (email,))
         return self.db_cursor.fetchone() is not None
 
-    def save_contact(self, message_id, contact):
+    def save_contact(self, contact):
         try:
             self.db_cursor.execute(
                 """
-                INSERT INTO contacts (message_id, name, email, phone, fax, landline)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO contacts (name, email, phone, fax, landline, role, linkedin_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    message_id,
                     contact.get('name'),
                     contact.get('email'),
                     contact.get('phone'),
                     contact.get('fax'),
                     contact.get('landline'),
+                    contact.get('role'),
+                    contact.get('linkedin_url'),
                 ),
             )
             self.db_conn.commit()
-            logging.info(f"Saved contact: {contact.get('email')}")
+            logging.info(f"Saved contact: {contact.get('email')} with role: {contact.get('role')}")
+        except mysql.connector.errors.IntegrityError:
+            logging.info(f"Duplicate contact not inserted: {contact.get('email')}")
         except Exception as e:
             logging.error(f"Error saving contact to DB: {e}")
 
-    def fetch_emails(self, limit=50):
+    def fetch_emails(self):
         contacts = []
-
         try:
-            result, data = self.mail.search(None, 'UNSEEN')  # fetch only unread emails
+            result, data = self.mail.search(None, 'ALL')
             if result != 'OK':
                 logging.error("Failed to search inbox.")
                 return []
 
             email_ids = data[0].split()
-            if limit:
-                email_ids = email_ids[:limit]
+            logging.info(f"Found {len(email_ids)} emails in inbox.")
 
         except Exception as e:
             logging.error(f"Error fetching emails: {e}")
@@ -101,18 +102,17 @@ class EmailScraper:
                     continue
 
                 msg = email.message_from_bytes(msg_data[0][1])
-                message_id = msg.get('Message-ID', '').strip()
-
-                if not message_id:
-                    message_id = f"no-message-id-{email_id.decode()}"
-
-                if self.is_processed(message_id):
-                    logging.info(f"Skipping already processed email: {message_id}")
+                contact = EmailParser.extract_contact_info(msg)
+                if not contact:
+                    logging.info(f"Skipped non-recruiter/vendor or non-job email.")
                     continue
 
-                contact = EmailParser.extract_contact_info(msg)
-                self.save_contact(message_id, contact)
+                # Uniqueness: skip if email already processed
+                if self.is_email_processed(contact['email']):
+                    logging.info(f"Skipping already processed contact: {contact['email']}")
+                    continue
 
+                self.save_contact(contact)
                 contacts.append(contact)
                 time.sleep(self.rate_limit_seconds)
 
@@ -143,9 +143,9 @@ def main():
         print("Failed to connect to IMAP. Exiting.")
         return
 
-    print("Fetching and processing new unread emails...")
-    contacts = scraper.fetch_emails(limit=100)
-    print(f"Processed {len(contacts)} new contacts.")
+    print("Fetching and processing recruiter/vendor emails for contacts...")
+    contacts = scraper.fetch_emails()
+    print(f"Processed {len(contacts)} new recruiter/vendor contacts.")
     scraper.close()
 
 if __name__ == "__main__":

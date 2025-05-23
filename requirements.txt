@@ -5,3 +5,4 @@ pandas
 tqdm
 phonenumbers>=8.12.0
 mysql-connector-python
+backoff

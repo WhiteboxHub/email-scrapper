@@ -81,7 +81,8 @@ class EmailParser:
                 contact['phone'] = raw
 
         # Extract LinkedIn URL (prefer one with sender's name if possible)
-        linkedin_urls = EmailParser.LINKEDIN_REGEX.findall(body)
+        signature = EmailParser.extract_signature(body)
+        linkedin_urls = EmailParser.LINKEDIN_REGEX.findall(signature)
         if linkedin_urls:
             name_parts = [p.lower() for p in name.split() if p]
             best_url = None

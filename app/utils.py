@@ -13,14 +13,13 @@ class EmailParser:
 
     ROLE_KEYWORDS = {
         'recruiter', 'talent acquisition', 'account manager', 'hr', 'staffing',
-        'vendor', 'client', 'consultant', 'business development', 'sales',
+        'vendor', 'client', 'consultant',
         'talent', 'sourcing', 'delivery manager', 'resource manager'
     }
 
     LINKEDIN_REGEX = re.compile(
         r'(https?://(?:[a-z]{2,3}\.)?linkedin\.com/[^\s\'"<>]+)', re.IGNORECASE
     )
-
     @staticmethod
     def extract_contact_info(msg):
         contact = {

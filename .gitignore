@@ -3,3 +3,5 @@
 output/
 __pycache__/
 app/__pycache__/
+app/extracted_contacts.csv
+app/config.yaml

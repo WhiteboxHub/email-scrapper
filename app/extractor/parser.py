@@ -1,29 +1,35 @@
 import re
 from models.contact import Contact
 from datetime import datetime
+import phonenumbers
+from utils import ContactExtractor
+import email as email_lib
+import yaml
+
+
+with open('config.yaml', 'r', encoding='utf-8') as f:
+    config = yaml.safe_load(f)
+contact_extractor = ContactExtractor('config.yaml')
 
 def extract_contact(uid, msg):
-    # Extract email
-    from_email = re.findall(r'<(.+?)>', msg.get('From', ''))
-    email_addr = from_email[0] if from_email else msg.get('From', '')
-    # Extract name
-    name = msg.get('From', '').split('<')[0].strip().replace('"', '')
-    # Extract phone (simple regex)
-    body = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                body = part.get_payload(decode=True).decode(errors='ignore')
-    else:
-        body = msg.get_payload(decode=True).decode(errors='ignore')
-    phone = re.search(r'(\+?\d[\d\-\(\) ]{7,}\d)', body)
-    phone = phone.group(0) if phone else ""
-    # Company, website, priority, notes (stubbed, can be improved)
-    company_name = ""
-    website = ""
-    priority = ""
-    notes = ""
-    # Source
-    source = "email"
-    extracted_date = datetime.now()
+    scrapped_date = datetime.now()
+    contact_info = contact_extractor.extract_contact_info(msg, scrapped_date)
+    if not contact_info:
+        return None
+    name = contact_info.get('name', '')
+    email_addr = contact_info.get('email', '')
+    phone = contact_info.get('phone_number', '')
+    company_name = '' 
+    website = ''       
+    priority = ''
+    notes = ''
+    source = contact_info.get('source', 'email')
+    extracted_date = scrapped_date
+    notes_parts = []
+    if contact_info.get('linkedin_url'):
+        notes_parts.append(f"LinkedIn: {contact_info['linkedin_url']}")
+    if contact_info.get('role'):
+        notes_parts.append(f"Role: {contact_info['role']}")
+    if notes_parts:
+        notes = ' | '.join(notes_parts)
     return Contact(name, email_addr, phone, source, extracted_date, company_name, website, priority, notes, uid)

@@ -10,7 +10,8 @@ def main():
     import sys
     config = load_config('config.yaml')
     db.init_db()
-    last_run = db.get_last_run_date()
+    account_email = config['email']['username']
+    last_run = db.get_last_run_date_for_account(account_email)
     count = 0
     extracted_by = config['email']['username']
     extraction_run_end = datetime.now().isoformat()
@@ -27,7 +28,7 @@ def main():
                 print(f"[SKIP] Contact with email {contact.email} already exists.", file=sys.stderr)
         else:
             print(f"[NOT EXTRACTING] Email UID {uid}: {msg.get('From', '')}", file=sys.stderr)
-    db.update_last_run_date(extraction_run_end)
+    db.update_last_run_date_for_account(account_email, extraction_run_end)
     logger.log_summary(extracted_by, extraction_run_end, count)
     logger.report_summary(count)
 

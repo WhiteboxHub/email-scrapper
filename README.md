@@ -1,6 +1,6 @@
 # Email Scraper
 
-This project extracts recruiter/vendor contact information from emails 
+This project extracts recruiter/vendor contact information from emails.
 
 ## Quickstart
 
@@ -15,14 +15,17 @@ This project extracts recruiter/vendor contact information from emails
    pip install -r requirements.txt
    ```
 
-3. **Set up your environment variables:**
-   - Copy `.env.example` to `.env` and fill in your IMAP and MySQL credentials.
+3. **Add the configuration file:**
+  
+   -  `app/config.yaml` to customize your email, rules, and other settings as needed.
 
-4. **Run the scraper:**
+4. **Set up your environment variables:**
+   - add .env` and fill in your IMAP and MySQL credentials.
+
+5. **Run the scraper:**
    ```bash
    python app/main.py
    ```
-
 
 ## Contributors
 

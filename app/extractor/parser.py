@@ -1,9 +1,6 @@
-import re
 from models.contact import Contact
 from datetime import datetime
-import phonenumbers
 from utils import ContactExtractor
-import email as email_lib
 import yaml
 
 

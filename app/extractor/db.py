@@ -2,7 +2,6 @@ import mysql.connector
 from mysql.connector import Error
 from models.contact import Contact
 import os
-from datetime import datetime, timedelta
 
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")

@@ -1,7 +1,5 @@
 import imaplib
 import email
-from email.header import decode_header
-from datetime import datetime
 
 def fetch_emails(config, since_date):
     # Connect to IMAP server
